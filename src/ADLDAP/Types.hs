@@ -6,11 +6,14 @@ module ADLDAP.Types where
 
 import Data.Text (Text)
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BC
 import Data.Map (Map)
 import Data.Set (Set)
+import qualified Data.Set as S
 import LDAP
 import Data.Binary
 import GHC.Generics
+import qualified Data.ByteString.Base64 as B64
 
 data ADCtx = ADCtx{adRealm :: !Realm
                   ,adHost  :: !Host
@@ -31,12 +34,19 @@ newtype Tagged tag a = Tagged {unTagged :: a} deriving (Eq, Ord)
 unTag = unTagged
 instance Show a => Show (Tagged tag a) where
   show = show . unTagged
-  
+
 type DN = Tagged DnTag Text  
 type Key = Tagged KeyTag Text
 type Val = ByteString
 
-data Attr = Attr !ADType !(Set Val) deriving Show
+data Attr = Attr !ADType !(Set Val)
+
+instance Show Attr where
+  show (Attr t vs) = unlines $ map (showVal t) $ S.toList vs
+
+showVal :: ADType -> Val -> String
+showVal StringUnicode v = BC.unpack v
+showVal _ v = BC.unpack $ B64.encode v
 
 data Record = Record{dn    :: !DN
                     ,attrs :: !(Map Key Attr)
