@@ -10,6 +10,7 @@ import qualified Data.ByteString.Char8 as BC
 import Data.Map (Map)
 import Data.Set (Set)
 import qualified Data.Set as S
+import qualified Data.Map as M
 import LDAP
 import Data.Binary
 import GHC.Generics
@@ -38,8 +39,20 @@ instance Show a => Show (Tagged tag a) where
 type DN = Tagged DnTag Text  
 type Key = Tagged KeyTag Text
 type Val = ByteString
-
 data Attr = Attr !ADType !(Set Val)
+instance Semigroup Attr where
+  (Attr t a) <> (Attr _ b) = Attr t (a <> b)
+instance Eq Attr where
+  (==) (Attr _ a) (Attr _ b) = a == b
+
+type Attrs = Map Key Attr
+
+mkAttrs :: [(Key, Attr)] -> Attrs
+mkAttrs = foldl (flip $ uncurry $ M.insertWith (<>)) M.empty
+
+mkVal :: [Val] -> Set Val
+mkVal = S.fromList
+
 
 instance Show Attr where
   show (Attr t vs) = unlines $ map (showVal t) $ S.toList vs
@@ -49,12 +62,29 @@ showVal StringUnicode v = BC.unpack v
 showVal _ v = BC.unpack $ B64.encode v
 
 data Record = Record{dn    :: !DN
-                    ,attrs :: !(Map Key Attr)
+                    ,attrs :: !Attrs
                     }
-  deriving Show
+  deriving (Eq, Show)
 
+data RecOp = AddRec Record
+           | DeleteRec DN
+           | MoveRec DN DN
+  deriving (Eq, Show)
+
+data AttrOp = AddVals Record
+            | DeleteVals Record
+            | ReplaceVals Record
+  deriving (Eq, Show)
+
+data ModOp = ModOp {recOps :: [RecOp], attrOps :: [AttrOp]} deriving (Eq, Show)
+
+data LdifRecsTag
+data LdifModTag
+type LdifRecs = Tagged LdifRecsTag Text
+type LdifMod = Tagged LdifModTag Text
 
 type TypeMap = Map Key ADType
+type TypeResolver = (Key -> ADType)
 
 class OID a where
   fromOID :: (String,Int,Maybe String) -> Maybe a

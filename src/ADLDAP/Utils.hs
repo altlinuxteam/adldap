@@ -3,6 +3,8 @@
 module ADLDAP.Utils (adSearch
                     ,childrenOf
                     ,fetchAllTypes
+                    ,fromLdif, toLdif
+                    ,modOpsToLdif
                     ,recordOf
                     ) where
 
@@ -26,6 +28,18 @@ import qualified Data.ASN1.Types as Asn
 import qualified Data.Map as M
 import GHC.Word
 import LDAP
+import ADLDAP.LDIF.Parser (parseLdif)
+
+modOpsToLdif :: ADCtx -> [ModOp] -> LdifMod
+modOpsToLdif ad mops = undefined
+
+fromLdif :: ADCtx -> LdifRecs -> [Record]
+fromLdif ad text = parseLdif (fromJust . lookupFunc) text
+  where types = tmap ad
+        lookupFunc = flip M.lookup types
+
+toLdif :: ADCtx -> [Record] -> LdifRecs
+toLdif ad recs = undefined
 
 recordOf :: ADCtx -> FilePath -> IO Record
 recordOf ad path = head <$> adSearch ad (path2dn ad path) Base Nothing [Tagged "*"]
