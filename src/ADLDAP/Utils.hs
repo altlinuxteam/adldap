@@ -10,6 +10,7 @@ module ADLDAP.Utils (adSearch
 
 import ADLDAP.Types
 import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString.Base64 as B64
 import qualified Data.Map as M
 import qualified Data.Set as S
 import LDAP.Search
@@ -38,11 +39,45 @@ fromLdif ad text = parseLdif (fromJust . lookupFunc) text
   where types = tmap ad
         lookupFunc = flip M.lookup types
 
-toLdif :: ADCtx -> [Record] -> LdifRecs
-toLdif ad recs = undefined
+toLdif :: [Record] -> LdifRecs
+toLdif recs = Tagged $ T.unlines $ map (unTagged . recToLdif) recs
+
+recToLdif :: Record -> LdifRecs
+recToLdif (Record dn attrs) = Tagged $ T.unlines $ ["dn: " <> unTagged dn] <> attrsToLdif attrs
+
+attrsToLdif :: Attrs -> [Text]
+attrsToLdif attrs = concatMap (\(k, (Attr t vals)) -> map (valToLdif k t) (S.toList vals)) $ M.toList attrs
+
+valToLdif :: Key -> ADType -> Val -> Text
+valToLdif k t v = unTagged k <> valToText t v
+
+valToText :: ADType -> Val -> Text
+valToText Boolean                   v = ": " <> T.decodeUtf8 v
+valToText Integer                   v = ": " <> T.decodeUtf8 v
+valToText Enumeration               v = ": " <> T.decodeUtf8 v
+valToText LargeInteger              v = ": " <> T.decodeUtf8 v
+valToText ObjectAccessPoint         v = ": " <> T.decodeUtf8 v
+valToText ObjectDNString            v = ": " <> T.decodeUtf8 v
+valToText ObjectORName              v = ": " <> T.decodeUtf8 v
+valToText ObjectDNBinary            v = ": " <> T.decodeUtf8 v
+valToText ObjectDSDN                v = ": " <> T.decodeUtf8 v
+valToText ObjectPresentationAddress v = ": " <> T.decodeUtf8 v
+valToText ObjectReplicaLink         v = ": " <> T.decodeUtf8 v
+valToText StringCase                v = ": " <> T.decodeUtf8 v
+valToText StringIA5                 v = ": " <> T.decodeUtf8 v
+valToText StringNTSecDesc           v = ": " <> T.decodeUtf8 v
+valToText StringNumeric             v = ": " <> T.decodeUtf8 v
+valToText StringObjectIdentifier    v = ": " <> T.decodeUtf8 v
+valToText StringOctet               v = ":: " <> (T.decodeUtf8 $ B64.encode v)
+valToText StringPrintable           v = ": " <> T.decodeUtf8 v
+valToText StringSid                 v = ":: " <> (T.decodeUtf8 $ B64.encode v)
+valToText StringTeletex             v = ": " <> T.decodeUtf8 v
+valToText StringUnicode             v = ": " <> T.decodeUtf8 v
+valToText StringUTCTime             v = ": " <> T.decodeUtf8 v
+valToText StringGeneralizedTime     v = ": " <> T.decodeUtf8 v
 
 recordOf :: ADCtx -> FilePath -> IO Record
-recordOf ad path = head <$> adSearch ad (path2dn ad path) Base Nothing [Tagged "*"]
+recordOf ad path = head <$> adSearch ad (path2dn ad path) Base Nothing [Tagged "*", Tagged "+"]
 {--
 childrenOf :: ADCtx -> FilePath -> IO [Record]
 childrenOf ad path = adSearch ad (path2dn ad path) One Nothing [Tagged "*"]
