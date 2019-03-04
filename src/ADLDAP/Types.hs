@@ -10,8 +10,11 @@ import qualified Data.ByteString.Char8 as BC
 import Data.Map (Map)
 import Data.Set (Set)
 import qualified Data.Set as S
+import qualified Data.Text as T
+import Data.String (IsString(..))
 import qualified Data.Map as M
 import LDAP
+import Numeric (showHex)
 import Data.Binary
 import GHC.Generics
 import qualified Data.ByteString.Base64 as B64
@@ -36,16 +39,28 @@ unTag = unTagged
 instance Show a => Show (Tagged tag a) where
   show = show . unTagged
 
-type DN = Tagged DnTag Text  
+type DN = Tagged DnTag Text
+instance IsString DN where
+  fromString = Tagged . T.pack
+
 type Key = Tagged KeyTag Text
+instance IsString Key where
+  fromString = Tagged . T.pack
+
 type Val = ByteString
-data Attr = Attr !ADType !(Set Val)
+type Vals = Set Val
+data Attr = Attr !ADType !Vals
 instance Semigroup Attr where
   (Attr t a) <> (Attr _ b) = Attr t (a <> b)
 instance Eq Attr where
   (==) (Attr _ a) (Attr _ b) = a == b
+instance Show Attr where
+  show (Attr t a) = show t ++ show a
 
 type Attrs = Map Key Attr
+
+vals :: Attr -> Vals
+vals (Attr _ vs) = vs
 
 mkAttrs :: [(Key, Attr)] -> Attrs
 mkAttrs = foldl (flip $ uncurry $ M.insertWith (<>)) M.empty
@@ -53,27 +68,25 @@ mkAttrs = foldl (flip $ uncurry $ M.insertWith (<>)) M.empty
 mkVal :: [Val] -> Set Val
 mkVal = S.fromList
 
-
-instance Show Attr where
-  show (Attr t vs) = unlines $ map (showVal t) $ S.toList vs
-
-showVal :: ADType -> Val -> String
-showVal StringUnicode v = BC.unpack v
-showVal _ v = BC.unpack $ B64.encode v
-
 data Record = Record{dn    :: !DN
                     ,attrs :: !Attrs
                     }
   deriving (Eq, Show)
 
-data RecOp = AddRec Record
-           | DeleteRec DN
-           | MoveRec DN DN
+data RecOp = Add !Record
+           | Mod !DN ![AttrOp]
+           | Del !DN
+           | Mov !DN !DN
   deriving (Eq, Show)
 
-data AttrOp = AddVals Record
-            | DeleteVals Record
-            | ReplaceVals Record
+data AttrOp = AddAttr Key Vals
+            | DeleteAttr Key Vals
+            | ReplaceAttr Key Vals
+            | ModifyAttr Key [ValOp]
+  deriving (Eq, Show)
+
+data ValOp = AddVals { vs :: ![Val]}
+           | DelVals { vs :: ![Val]}
   deriving (Eq, Show)
 
 data ModOp = ModOp {recOps :: [RecOp], attrOps :: [AttrOp]} deriving (Eq, Show)
@@ -81,7 +94,13 @@ data ModOp = ModOp {recOps :: [RecOp], attrOps :: [AttrOp]} deriving (Eq, Show)
 data LdifRecsTag
 data LdifModTag
 type LdifRecs = Tagged LdifRecsTag Text
+instance IsString LdifRecs where
+  fromString = Tagged . T.pack
+
 type LdifMod = Tagged LdifModTag Text
+instance IsString LdifMod where
+  fromString = Tagged . T.pack
+
 
 type TypeMap = Map Key ADType
 type TypeResolver = (Key -> ADType)
@@ -173,3 +192,29 @@ data Scope = Base
            | One
            | Sub
   deriving (Eq, Show)
+
+newtype Authority = Authority Int deriving (Eq, Show)
+newtype RID = RID Int deriving (Eq, Show)
+
+data ObjectSID =
+  ObjectSID{ rev :: Int
+           , subAuthCount :: Int
+           , auth :: Authority
+           , rids :: [RID]
+           }
+  deriving (Eq)
+instance Show ObjectSID where
+  show (ObjectSID r _ (Authority a) rs) = "S-" ++ show r ++ "-" ++ show a ++ concatMap (\(RID x) -> "-" ++ show x) rs
+
+data ObjectGUID =
+  ObjectGUID{ f1 :: Word32
+            , f2 :: Word16
+            , f3 :: Word16
+            , f4 :: Word64
+            }
+  deriving (Eq)
+instance Show ObjectGUID where
+  show (ObjectGUID f1' f2' f3' f4') = showHex f1' "-" ++ showHex f2' "-" ++ showHex f3' "-" ++ f4_1 ++ "-" ++ f4_2
+    where f4_h = showHex f4' ""
+          f4_1 = take 4 f4_h
+          f4_2 = drop 4 f4_h

@@ -1,18 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 module ADLDAP.Utils (adSearch
-                    ,childrenOf
+                    ,childrenOf, childrenOf'
                     ,fetchAllTypes
                     ,fromLdif, toLdif
                     ,modOpsToLdif
+                    ,rdnOf
                     ,recordOf
+                    , cmp
                     ) where
 
 import ADLDAP.Types
 import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.Map as M
 import qualified Data.Set as S
+import Data.Binary.Get
 import LDAP.Search
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -21,12 +25,13 @@ import qualified Data.List as L
 import Data.Maybe (fromJust)
 import qualified Data.Text as T
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString as B
 import qualified Data.ASN1.Encoding as Asn
 import qualified Data.ASN1.BinaryEncoding as Asn
 import qualified Data.ASN1.Types as Asn
 import qualified Data.Map as M
+import Data.Bits
+import Control.Monad (replicateM)
 import GHC.Word
 import LDAP
 import ADLDAP.LDIF.Parser (parseLdif)
@@ -49,35 +54,38 @@ attrsToLdif :: Attrs -> [Text]
 attrsToLdif attrs = concatMap (\(k, (Attr t vals)) -> map (valToLdif k t) (S.toList vals)) $ M.toList attrs
 
 valToLdif :: Key -> ADType -> Val -> Text
-valToLdif k t v = unTagged k <> valToText t v
+valToLdif k t v = unTagged k <> valToText k t v <> "\n# " <> T.pack (show t)
 
-valToText :: ADType -> Val -> Text
-valToText Boolean                   v = ": " <> T.decodeUtf8 v
-valToText Integer                   v = ": " <> T.decodeUtf8 v
-valToText Enumeration               v = ": " <> T.decodeUtf8 v
-valToText LargeInteger              v = ": " <> T.decodeUtf8 v
-valToText ObjectAccessPoint         v = ": " <> T.decodeUtf8 v
-valToText ObjectDNString            v = ": " <> T.decodeUtf8 v
-valToText ObjectORName              v = ": " <> T.decodeUtf8 v
-valToText ObjectDNBinary            v = ": " <> T.decodeUtf8 v
-valToText ObjectDSDN                v = ": " <> T.decodeUtf8 v
-valToText ObjectPresentationAddress v = ": " <> T.decodeUtf8 v
-valToText ObjectReplicaLink         v = ": " <> T.decodeUtf8 v
-valToText StringCase                v = ": " <> T.decodeUtf8 v
-valToText StringIA5                 v = ": " <> T.decodeUtf8 v
-valToText StringNTSecDesc           v = ": " <> T.decodeUtf8 v
-valToText StringNumeric             v = ": " <> T.decodeUtf8 v
-valToText StringObjectIdentifier    v = ": " <> T.decodeUtf8 v
-valToText StringOctet               v = ":: " <> (T.decodeUtf8 $ B64.encode v)
-valToText StringPrintable           v = ": " <> T.decodeUtf8 v
-valToText StringSid                 v = ":: " <> (T.decodeUtf8 $ B64.encode v)
-valToText StringTeletex             v = ": " <> T.decodeUtf8 v
-valToText StringUnicode             v = ": " <> T.decodeUtf8 v
-valToText StringUTCTime             v = ": " <> T.decodeUtf8 v
-valToText StringGeneralizedTime     v = ": " <> T.decodeUtf8 v
+valToText :: Key -> ADType -> Val -> Text
+valToText _ Boolean                   v = ": " <> T.decodeUtf8 v
+valToText _ Integer                   v = ": " <> T.decodeUtf8 v
+valToText _ Enumeration               v = ": " <> T.decodeUtf8 v
+valToText _ LargeInteger              v = ": " <> T.decodeUtf8 v
+valToText _ ObjectAccessPoint         v = ": " <> T.decodeUtf8 v
+valToText _ ObjectDNString            v = ": " <> T.decodeUtf8 v
+valToText _ ObjectORName              v = ": " <> T.decodeUtf8 v
+valToText _ ObjectDNBinary            v = ": " <> T.decodeUtf8 v
+valToText _ ObjectDSDN                v = ": " <> T.decodeUtf8 v
+valToText _ ObjectPresentationAddress v = ": " <> T.decodeUtf8 v
+valToText _ ObjectReplicaLink         v = ": " <> T.decodeUtf8 v
+valToText _ StringCase                v = ": " <> T.decodeUtf8 v
+valToText _ StringIA5                 v = ": " <> T.decodeUtf8 v
+valToText _ StringNTSecDesc           v = ": " <> T.decodeUtf8 v
+valToText _ StringNumeric             v = ": " <> T.decodeUtf8 v
+valToText _ StringObjectIdentifier    v = ": " <> T.decodeUtf8 v
+valToText "objectGUID" StringOctet    v = ":: " <> (T.decodeUtf8 $ B64.encode v) <> "\n# " <> T.pack (show $ parseGUID $ BL.fromStrict v)
+valToText _ StringOctet               v = ":: " <> (T.decodeUtf8 $ B64.encode v)
+valToText _ StringPrintable           v = ": " <> T.decodeUtf8 v
+valToText _ StringSid                 v = ":: " <> (T.decodeUtf8 $ B64.encode v) <> "\n# " <> T.pack (show $ parseSID $ BL.fromStrict v)
+valToText _ StringTeletex             v = ": " <> T.decodeUtf8 v
+valToText _ StringUnicode             v = ": " <> T.decodeUtf8 v
+valToText _ StringUTCTime             v = ": " <> T.decodeUtf8 v
+valToText _ StringGeneralizedTime     v = ": " <> T.decodeUtf8 v
+
+allAttrs = ["*", "+"]
 
 recordOf :: ADCtx -> FilePath -> IO Record
-recordOf ad path = head <$> adSearch ad (path2dn ad path) Base Nothing [Tagged "*", Tagged "+"]
+recordOf ad path = head <$> adSearch ad (path2dn ad path) Base Nothing allAttrs
 {--
 childrenOf :: ADCtx -> FilePath -> IO [Record]
 childrenOf ad path = adSearch ad (path2dn ad path) One Nothing [Tagged "*"]
@@ -85,6 +93,12 @@ childrenOf ad path = adSearch ad (path2dn ad path) One Nothing [Tagged "*"]
 childrenOf :: ADCtx -> FilePath -> IO [Text]
 childrenOf ad path = headOfDN <$> adSearch ad (path2dn ad path) One Nothing []
   where headOfDN = map (head . T.splitOn "," . unTag . dn)
+
+childrenOf' :: ADCtx -> FilePath -> IO [Record]
+childrenOf' ad path = adSearch ad (path2dn ad path) One Nothing allAttrs
+
+rdnOf :: Record -> Text
+rdnOf = head . T.splitOn "," . unTagged . dn
 
 adSearch :: ADCtx -> DN -> Scope -> Maybe Filter -> [Key] -> IO [Record]
 adSearch ad@ADCtx{..} dn scope filter attrs = do
@@ -164,6 +178,96 @@ oMObjectClassFromBER :: ByteString -> Maybe String
 oMObjectClassFromBER hex = case Asn.decodeASN1' Asn.BER hex' of
   Right [Asn.OID x] -> Just $ stringify x
   Left _ -> Nothing
-  where hex' = if 0x06 == BS.head hex then hex else 0x06 `BS.cons` (BS.pack [len]) <> hex
-        len = fromIntegral (BS.length hex) :: Word8
+  where hex' = if 0x06 == B.head hex then hex else 0x06 `B.cons` (B.pack [len]) <> hex
+        len = fromIntegral (B.length hex) :: Word8
         stringify = L.init . L.foldr (\a b -> show a <> "." <> b) ""
+
+getAuthority :: Get Authority
+getAuthority = do
+  d <- getByteString 6
+  let auth = sum $ map (\(n, b) -> fromIntegral (b `shiftR` n)) $ zip [0,8..] (reverse (B.unpack d))
+  return $ Authority auth
+
+getRID :: Get RID
+getRID = do
+  a <- getWord32le
+  let rid = fromIntegral a
+  return $ RID rid
+
+parseSID' :: Get ObjectSID
+parseSID' = do
+  empty <- isEmpty
+  if empty
+    then return $ ObjectSID 0 0 (Authority 0) []
+    else do r <- getWord8
+            s <- getWord8
+            a <- getAuthority
+            rs <- replicateM (fromIntegral s) getRID
+            return $ ObjectSID (fromIntegral r) (fromIntegral s) a rs
+
+parseSID :: BL.ByteString -> ObjectSID
+parseSID = runGet parseSID'
+
+sid2str :: String -> String
+sid2str s = show $ parseSID $ BL.pack s
+
+parseGUID :: BL.ByteString -> ObjectGUID
+parseGUID = runGet parseGUID'
+
+parseGUID' :: Get ObjectGUID
+parseGUID' = do
+  empty <- isEmpty
+  if empty
+    then return $ ObjectGUID 0 0 0 0
+    else ObjectGUID <$> getWord32le
+                    <*> getWord16le
+                    <*> getWord16le
+                    <*> getWord64be
+
+guid2str :: String -> String
+guid2str s = show $ parseGUID $ BL.pack s
+
+apply :: ADCtx -> RecOp -> IO ()
+apply ad (Add r) = ldapAdd (ldap ad) (T.unpack . unTagged . dn $ r) (recToLdapAdd r)
+apply ad (Mod dn aops) = ldapModify (ldap ad) (T.unpack . unTagged $ dn) (concatMap aopToLdapMod aops)
+apply ad (Del dn) = ldapDelete (ldap ad) (T.unpack $ unTagged dn)
+apply ad (Mov from to) = ldapRename (ldap ad) (T.unpack $ unTagged from) rdn prdn
+  where rdn = T.unpack . head $ parts
+        prdn = T.unpack . T.unlines . tail $ parts
+        parts = T.splitOn "," $ unTagged to
+
+aopToLdapMod :: AttrOp -> [LDAPMod]
+aopToLdapMod (AddAttr k vs) = undefined
+aopToLdapMod (DeleteAttr k vs) = undefined
+aopToLdapMod (ReplaceAttr k vs) = undefined
+aopToLdapMod (ModifyAttr k vops) = undefined
+
+
+recToLdapAdd :: Record -> [LDAPMod]
+recToLdapAdd = undefined
+
+cmpVals :: Vals -> Vals -> (ValOp, ValOp)
+cmpVals old new = (added, deleted)
+  where added = AddVals $ S.toList $ S.difference new old
+        deleted = DelVals $ S.toList $ S.difference old new
+
+--cmp :: Record -> Record -> [AttrOp]
+cmp (Record oldDn oldAttrs) (Record newDn newAttrs) =
+  let mm = M.intersection oldAttrs newAttrs
+      addAttrs = map (\(k, as) -> AddAttr k (vals as))    $ M.toList $ M.difference newAttrs oldAttrs
+      delAttrs = map (\(k, as) -> DeleteAttr k $ vals as) $ M.toList $ M.difference oldAttrs newAttrs
+      modAttrs = map (\(k, op) -> op) $ M.toList $ M.mapMaybe id $ M.intersectionWithKey (
+        \k (Attr ta as) (Attr tb bs) -> let newRecSize = S.size bs
+                                            opsCount = length (vs adds) + length (vs dels)
+                                            (adds, dels) = cmpVals as bs
+                                        in if opsCount == 0 then Nothing
+                                           else Just $ case opsCount `compare` newRecSize of
+                                                         LT -> ModifyAttr k $ normOps [adds, dels]
+                                                         _ -> ReplaceAttr k bs
+        ) oldAttrs newAttrs
+  in addAttrs <> delAttrs <> modAttrs
+
+normOps :: [ValOp] -> [ValOp]
+normOps = filter (not . isEmpty)
+  where isEmpty :: ValOp -> Bool
+        isEmpty x = vs x == []

@@ -1,4 +1,4 @@
-module ADLDAP (adInit, adSearch, recordOf) where
+module ADLDAP (adInit, adSearch, recordOf, fromLdif, toLdif, childrenOf, childrenOf', rdnOf) where
 
 import LDAP
 import ADLDAP.Types

@@ -16,7 +16,7 @@ maintainer:          omg@altlinux.org
 extra-source-files:  CHANGELOG.md
 
 library
-  extensions: OverloadedStrings
+  default-extensions: OverloadedStrings
   exposed-modules:     ADLDAP
                      , ADLDAP.Types
                      , ADLDAP.Utils
