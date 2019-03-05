@@ -8,9 +8,8 @@ module ADLDAP.Utils (adSearch
                     ,rdnOf
                     ,recordOf
                     ,cmp
-                    -- temp import for debug
-                    ,recToLdapAdd
-                    ,aopToLdapMod
+                    ,newRec, modRec, delRec, movRec
+                    ,path2dn
                     ) where
 
 import ADLDAP.Types
@@ -231,13 +230,25 @@ parseGUID' = do
 guid2str :: String -> String
 guid2str s = show $ parseGUID $ BL.pack s
 
+newRec :: ADCtx -> Record -> IO ()
+newRec ad r = apply ad $ Add r
+
+modRec :: ADCtx -> DN -> [AttrOp] -> IO ()
+modRec ad dn ops = apply ad $ Mod dn ops
+
+delRec :: ADCtx -> DN -> IO ()
+delRec ad dn = apply ad $ Del dn
+
+movRec :: ADCtx -> DN -> DN -> IO ()
+movRec ad f t = apply ad $ Mov f t
+
 apply :: ADCtx -> RecOp -> IO ()
 apply ad (Add r)       = ldapAdd    (ldap ad) (T.unpack . unTagged . dn $ r) (recToLdapAdd r)
 apply ad (Mod dn aops) = ldapModify (ldap ad) (T.unpack . unTagged $ dn) (concatMap aopToLdapMod aops)
 apply ad (Del dn)      = ldapDelete (ldap ad) (T.unpack $ unTagged dn)
 apply ad (Mov from to) = ldapRename (ldap ad) (T.unpack $ unTagged from) rdn prdn
   where rdn = T.unpack . head $ parts
-        prdn = T.unpack . T.unlines . tail $ parts
+        prdn = T.unpack . T.intercalate "," . tail $ parts
         parts = T.splitOn "," $ unTagged to
 
 key2str :: Key -> String
@@ -257,7 +268,8 @@ valsToStringList :: Vals -> [String]
 valsToStringList vs = map BC.unpack $ S.toList vs
 
 recToLdapAdd :: Record -> [LDAPMod]
-recToLdapAdd (Record dn attrs) = map (\(k, (Attr _ vs)) -> let k' = T.unpack (unTagged k) in LDAPMod LdapModAdd k' (valsToStringList vs)) $ M.toList attrs
+recToLdapAdd (Record dn attrs) = map (\(k, (Attr _ vs)) -> let k' = T.unpack (unTagged k) in LDAPMod LdapModAdd k' (valsToStringList vs)) $ M.toList filtered
+  where filtered = M.filterWithKey (\k _ -> k `notElem` restrictedKeys) attrs
 
 cmpVals :: Vals -> Vals -> (ValOp, ValOp)
 cmpVals old new = (added, deleted)
@@ -284,3 +296,22 @@ normOps :: [ValOp] -> [ValOp]
 normOps = filter (not . isEmpty)
   where isEmpty :: ValOp -> Bool
         isEmpty x = vs x == []
+
+restrictedKeys :: [Key]
+restrictedKeys =
+  ["primaryGroupId"
+  ,"cn"
+  ,"distinguishedName"
+  ,"memberOf"
+  ,"name"
+  ,"objectGUID"
+  ,"objectSid"
+  ,"primaryGroupID"
+  ,"pwdLastSet" -- or MUST be 0 or -1
+  ,"sAMAccountType"
+  ,"uSNChanged"
+  ,"uSNCreated"
+  ,"whenChanged"
+  ,"whenCreated"
+  ,"isCriticalSystemObject"
+  ]
