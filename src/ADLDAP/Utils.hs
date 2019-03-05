@@ -3,7 +3,7 @@
 module ADLDAP.Utils (adSearch
                     ,childrenOf, childrenOf'
                     ,fetchAllTypes
-                    ,fromLdif, toLdif
+                    ,fromLdif, toLdif, fromLdifBS
                     ,modOpsToLdif
                     ,rdnOf
                     ,recordOf
@@ -41,6 +41,9 @@ import Debug.Trace
 
 modOpsToLdif :: ADCtx -> [ModOp] -> LdifMod
 modOpsToLdif ad mops = undefined
+
+fromLdifBS :: ADCtx -> ByteString -> [Record]
+fromLdifBS ad bs = let ldif = Tagged . T.decodeUtf8 $ bs in fromLdif ad ldif
 
 fromLdif :: ADCtx -> LdifRecs -> [Record]
 fromLdif ad text = parseLdif (fromJust . lookupFunc) text
@@ -233,8 +236,8 @@ guid2str s = show $ parseGUID $ BL.pack s
 newRec :: ADCtx -> Record -> IO ()
 newRec ad r = apply ad $ Add r
 
-modRec :: ADCtx -> DN -> [AttrOp] -> IO ()
-modRec ad dn ops = apply ad $ Mod dn ops
+modRec :: ADCtx -> (DN, [AttrOp]) -> IO ()
+modRec ad (dn, ops) = apply ad $ Mod dn ops
 
 delRec :: ADCtx -> DN -> IO ()
 delRec ad dn = apply ad $ Del dn
@@ -276,7 +279,7 @@ cmpVals old new = (added, deleted)
   where added = AddVals $ S.toList $ S.difference new old
         deleted = DelVals $ S.toList $ S.difference old new
 
-cmp :: Record -> Record -> [AttrOp]
+cmp :: Record -> Record -> (DN, [AttrOp])
 cmp (Record oldDn oldAttrs) (Record newDn newAttrs) =
   let mm = M.intersection oldAttrs newAttrs
       addAttrs = map (\(k, as) -> AddAttr k (vals as))    $ M.toList $ M.difference newAttrs oldAttrs
@@ -290,7 +293,7 @@ cmp (Record oldDn oldAttrs) (Record newDn newAttrs) =
                                                          LT -> ModifyAttr k $ normOps [adds, dels]
                                                          _ -> ReplaceAttr k bs
         ) oldAttrs newAttrs
-  in addAttrs <> delAttrs <> modAttrs
+  in (oldDn, addAttrs <> delAttrs <> modAttrs)
 
 normOps :: [ValOp] -> [ValOp]
 normOps = filter (not . isEmpty)
