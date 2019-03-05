@@ -7,7 +7,10 @@ module ADLDAP.Utils (adSearch
                     ,modOpsToLdif
                     ,rdnOf
                     ,recordOf
-                    , cmp
+                    ,cmp
+                    -- temp import for debug
+                    ,recToLdapAdd
+                    ,aopToLdapMod
                     ) where
 
 import ADLDAP.Types
@@ -35,6 +38,7 @@ import Control.Monad (replicateM)
 import GHC.Word
 import LDAP
 import ADLDAP.LDIF.Parser (parseLdif)
+import Debug.Trace
 
 modOpsToLdif :: ADCtx -> [ModOp] -> LdifMod
 modOpsToLdif ad mops = undefined
@@ -228,30 +232,39 @@ guid2str :: String -> String
 guid2str s = show $ parseGUID $ BL.pack s
 
 apply :: ADCtx -> RecOp -> IO ()
-apply ad (Add r) = ldapAdd (ldap ad) (T.unpack . unTagged . dn $ r) (recToLdapAdd r)
+apply ad (Add r)       = ldapAdd    (ldap ad) (T.unpack . unTagged . dn $ r) (recToLdapAdd r)
 apply ad (Mod dn aops) = ldapModify (ldap ad) (T.unpack . unTagged $ dn) (concatMap aopToLdapMod aops)
-apply ad (Del dn) = ldapDelete (ldap ad) (T.unpack $ unTagged dn)
+apply ad (Del dn)      = ldapDelete (ldap ad) (T.unpack $ unTagged dn)
 apply ad (Mov from to) = ldapRename (ldap ad) (T.unpack $ unTagged from) rdn prdn
   where rdn = T.unpack . head $ parts
         prdn = T.unpack . T.unlines . tail $ parts
         parts = T.splitOn "," $ unTagged to
 
-aopToLdapMod :: AttrOp -> [LDAPMod]
-aopToLdapMod (AddAttr k vs) = undefined
-aopToLdapMod (DeleteAttr k vs) = undefined
-aopToLdapMod (ReplaceAttr k vs) = undefined
-aopToLdapMod (ModifyAttr k vops) = undefined
+key2str :: Key -> String
+key2str = T.unpack . unTagged
 
+aopToLdapMod :: AttrOp -> [LDAPMod]
+aopToLdapMod (AddAttr k vs) = [LDAPMod LdapModAdd (key2str k) (valsToStringList vs)]
+aopToLdapMod (DeleteAttr k vs) = [LDAPMod LdapModDelete (key2str k) (valsToStringList vs)]
+aopToLdapMod (ReplaceAttr k vs) = [LDAPMod LdapModReplace (key2str k) (valsToStringList vs)]
+aopToLdapMod (ModifyAttr k vops) = map (vopToLdapMod k) vops
+
+vopToLdapMod :: Key -> ValOp -> LDAPMod
+vopToLdapMod k (AddVals vs) = LDAPMod LdapModAdd (key2str k) $ valsToStringList $ S.fromList vs
+vopToLdapMod k (DelVals vs) = LDAPMod LdapModDelete (key2str k) $ valsToStringList $ S.fromList vs
+
+valsToStringList :: Vals -> [String]
+valsToStringList vs = map BC.unpack $ S.toList vs
 
 recToLdapAdd :: Record -> [LDAPMod]
-recToLdapAdd = undefined
+recToLdapAdd (Record dn attrs) = map (\(k, (Attr _ vs)) -> let k' = T.unpack (unTagged k) in LDAPMod LdapModAdd k' (valsToStringList vs)) $ M.toList attrs
 
 cmpVals :: Vals -> Vals -> (ValOp, ValOp)
 cmpVals old new = (added, deleted)
   where added = AddVals $ S.toList $ S.difference new old
         deleted = DelVals $ S.toList $ S.difference old new
 
---cmp :: Record -> Record -> [AttrOp]
+cmp :: Record -> Record -> [AttrOp]
 cmp (Record oldDn oldAttrs) (Record newDn newAttrs) =
   let mm = M.intersection oldAttrs newAttrs
       addAttrs = map (\(k, as) -> AddAttr k (vals as))    $ M.toList $ M.difference newAttrs oldAttrs
