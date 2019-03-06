@@ -32,6 +32,7 @@ library
                      , asn1-encoding
                      , asn1-types
                      , aeson
+                     , aeson-pretty
                      , attoparsec
                      , base64-bytestring
                      , binary

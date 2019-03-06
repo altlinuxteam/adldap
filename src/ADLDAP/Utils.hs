@@ -12,11 +12,13 @@ module ADLDAP.Utils (adSearch, adSearchReq
                     ,newRec, modRec, delRec, movRec
                     ,path2dn
                     ,nodeAttr
-                    ,recToTR, trToRec
-                    ,encode, decode
+--                    ,recToTR, trToRec
+--                    ,encode, decode
+                    ,toJson, toJsonPP, fromJson
                     ) where
 
 import Data.Aeson
+import Data.Aeson.Encode.Pretty
 import ADLDAP.Types
 import ADLDAP.Parsers
 import qualified Data.ByteString.Char8 as BC
@@ -366,3 +368,12 @@ trToRec trec = Record dn' attrs
   where dn' = Tagged $ trDN trec
         attrs = M.fromList $ map (\(k, (t, vs)) -> (Tagged k, Attr t (S.map (t2v (Tagged k) t) vs))) as
         as = M.toList $ trAttrs trec
+
+toJson :: [Record] -> Text
+toJson rs = T.unlines $ map (T.decodeUtf8 . BL.toStrict . encode . recToTR) rs
+
+toJsonPP :: [Record] -> Text
+toJsonPP rs = T.unlines $ map (T.decodeUtf8 . BL.toStrict . encodePretty . recToTR) rs
+
+fromJson :: Text -> [Record]
+fromJson = undefined
