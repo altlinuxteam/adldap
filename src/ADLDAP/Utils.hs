@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-module ADLDAP.Utils (adSearch
+module ADLDAP.Utils (adSearch, adSearchReq
                     ,childrenOf, childrenOf'
                     ,fetchAllTypes
-                    ,fromLdif, toLdif, fromLdifBS
+                    ,fromLdif, toLdif, fromLdifBS, toLdifBS
                     ,modOpsToLdif
                     ,rdnOf
                     ,recordOf
@@ -13,6 +13,7 @@ module ADLDAP.Utils (adSearch
                     ) where
 
 import ADLDAP.Types
+import ADLDAP.Parsers
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Base64 as B64
@@ -52,6 +53,9 @@ fromLdif ad text = parseLdif (fromJust . lookupFunc) text
 
 toLdif :: [Record] -> LdifRecs
 toLdif recs = Tagged $ T.unlines $ map (unTagged . recToLdif) recs
+
+toLdifBS :: [Record] -> ByteString
+toLdifBS = T.encodeUtf8 . unTagged . toLdif
 
 recToLdif :: Record -> LdifRecs
 recToLdif (Record dn attrs) = Tagged $ T.unlines $ ["dn: " <> unTagged dn] <> attrsToLdif attrs
@@ -105,6 +109,10 @@ childrenOf' ad path = adSearch ad (path2dn ad path) One Nothing allAttrs
 
 rdnOf :: Record -> Text
 rdnOf = head . T.splitOn "," . unTagged . dn
+
+adSearchReq :: ADCtx -> DN -> Text -> IO [Record]
+adSearchReq ad dn req = adSearch ad dn Sub filter attrs
+  where (filter,attrs) = parseSearchRequest req
 
 adSearch :: ADCtx -> DN -> Scope -> Maybe Filter -> [Key] -> IO [Record]
 adSearch ad@ADCtx{..} dn scope filter attrs = do

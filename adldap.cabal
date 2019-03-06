@@ -19,6 +19,7 @@ library
   default-extensions: OverloadedStrings
   exposed-modules:     ADLDAP
                      , ADLDAP.Types
+                     , ADLDAP.Parsers
                      , ADLDAP.Utils
                      , ADLDAP.LDIF
                      , ADLDAP.LDIF.Parser
