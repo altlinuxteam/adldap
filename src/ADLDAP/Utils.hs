@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 module ADLDAP.Utils (adSearch, adSearchReq
+                    ,adSetUserPass
                     ,childrenOf, childrenOf'
                     ,fetchAllTypes
                     ,fromLdif, toLdif, fromLdifBS, toLdifBS
@@ -10,6 +11,7 @@ module ADLDAP.Utils (adSearch, adSearchReq
                     ,cmp
                     ,newRec, modRec, delRec, movRec
                     ,path2dn
+                    ,nodeAttr
                     ) where
 
 import ADLDAP.Types
@@ -39,6 +41,11 @@ import GHC.Word
 import LDAP
 import ADLDAP.LDIF.Parser (parseLdif)
 import Debug.Trace
+
+adSetUserPass :: ADCtx -> DN -> Text -> IO ()
+adSetUserPass ad dn' pass = ldapModify (ldap ad) (T.unpack . unTagged $ dn') [LDAPMod LdapModReplace "unicodePwd" [encodedPass]]
+  where quotedPass = "\"" `T.append` pass `T.append` "\""
+        encodedPass = (BC.unpack . T.encodeUtf16LE) quotedPass
 
 modOpsToLdif :: ADCtx -> [ModOp] -> LdifMod
 modOpsToLdif ad mops = undefined
@@ -93,6 +100,13 @@ valToText _ StringUTCTime             v = ": " <> T.decodeUtf8 v
 valToText _ StringGeneralizedTime     v = ": " <> T.decodeUtf8 v
 
 allAttrs = ["*", "+"]
+
+nodeAttr :: ADCtx -> DN -> Text -> IO [Val]
+nodeAttr ad dn' attr = do
+  (Record _ res) <- head <$> adSearch ad dn' Base Nothing [key]
+  let (Attr _ vs) = fromJust $ M.lookup key res
+  return $ S.toList vs
+  where key = Tagged attr
 
 recordOf :: ADCtx -> FilePath -> IO Record
 recordOf ad path = head <$> adSearch ad (path2dn ad path) Base Nothing allAttrs
