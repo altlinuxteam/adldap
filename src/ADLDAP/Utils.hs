@@ -12,8 +12,11 @@ module ADLDAP.Utils (adSearch, adSearchReq
                     ,newRec, modRec, delRec, movRec
                     ,path2dn
                     ,nodeAttr
+                    ,recToTR, trToRec
+                    ,encode, decode
                     ) where
 
+import Data.Aeson
 import ADLDAP.Types
 import ADLDAP.Parsers
 import qualified Data.ByteString.Char8 as BC
@@ -98,6 +101,18 @@ valToText _ StringTeletex             v = ": " <> T.decodeUtf8 v
 valToText _ StringUnicode             v = ": " <> T.decodeUtf8 v
 valToText _ StringUTCTime             v = ": " <> T.decodeUtf8 v
 valToText _ StringGeneralizedTime     v = ": " <> T.decodeUtf8 v
+
+v2t :: Key -> ADType -> Val -> Text
+v2t "objectGUID" StringOctet v = T.pack (show $ parseGUID $ BL.fromStrict v)
+v2t _ StringSid v = T.pack (show $ parseSID $ BL.fromStrict v)
+v2t _ StringOctet v = T.decodeUtf8 $ B64.encode v
+v2t _ _ v = T.decodeUtf8 v
+
+t2v :: Key -> ADType -> Text -> Val
+t2v "objectGUID" StringOctet v = T.encodeUtf8 v
+t2v _ StringSid v = T.encodeUtf8 v
+t2v _ StringOctet v = B64.decodeLenient $ T.encodeUtf8 v
+t2v _ _ v = T.encodeUtf8 v
 
 allAttrs = ["*", "+"]
 
@@ -340,3 +355,14 @@ restrictedKeys =
   ,"whenCreated"
   ,"isCriticalSystemObject"
   ]
+
+recToTR :: Record -> TextRecord
+recToTR (Record dn' attrs) = TextRecord (unTagged dn') vals
+  where vals = M.fromList $ map (\(k, (Attr t vs)) -> (unTagged k, (t, S.map (v2t k t) vs))) as
+        as = M.toList attrs
+
+trToRec :: TextRecord -> Record
+trToRec trec = Record dn' attrs
+  where dn' = Tagged $ trDN trec
+        attrs = M.fromList $ map (\(k, (t, vs)) -> (Tagged k, Attr t (S.map (t2v (Tagged k) t) vs))) as
+        as = M.toList $ trAttrs trec

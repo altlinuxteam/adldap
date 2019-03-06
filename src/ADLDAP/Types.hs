@@ -4,6 +4,7 @@ FlexibleInstances
 #-}
 module ADLDAP.Types where
 
+import Data.Aeson
 import Data.Text (Text)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
@@ -11,6 +12,7 @@ import Data.Map (Map)
 import Data.Set (Set)
 import qualified Data.Set as S
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.String (IsString(..))
 import qualified Data.Map as M
 import LDAP
@@ -34,7 +36,8 @@ type Port = Int
 data DnTag
 data KeyTag
 
-newtype Tagged tag a = Tagged {unTagged :: a} deriving (Eq, Ord)
+newtype Tagged tag a = Tagged {unTagged :: a} deriving (Eq, Ord, Generic)
+
 unTag = unTagged
 instance Show a => Show (Tagged tag a) where
   show = show . unTagged
@@ -49,7 +52,7 @@ instance IsString Key where
 
 type Val = ByteString
 type Vals = Set Val
-data Attr = Attr !ADType !Vals
+data Attr = Attr !ADType !Vals deriving Generic
 instance Semigroup Attr where
   (Attr t a) <> (Attr _ b) = Attr t (a <> b)
 instance Eq Attr where
@@ -71,7 +74,14 @@ mkVal = S.fromList
 data Record = Record{dn    :: !DN
                     ,attrs :: !Attrs
                     }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+data TextRecord = TextRecord{trDN :: !Text
+                            ,trAttrs :: Map Text (ADType, Set Text)
+                            }
+  deriving (Eq, Show, Generic)
+instance FromJSON TextRecord
+instance ToJSON TextRecord
 
 data RecOp = Add !Record
            | Mod !DN ![AttrOp]
@@ -132,8 +142,11 @@ data ADType = Boolean
             | StringUnicode
             | StringUTCTime
             | StringGeneralizedTime
-  deriving (Eq, Ord, Show, Generic)
+  deriving (Eq, Ord, Show, Generic, Read)
 instance Binary ADType
+instance ToJSON ADType
+instance FromJSON ADType
+
 
 instance OID ADType where
   fromOID ("2.5.5.8",    1, Nothing)                        = Just Boolean

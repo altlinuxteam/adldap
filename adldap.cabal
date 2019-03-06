@@ -31,6 +31,7 @@ library
   build-depends:       base ^>=4.12.0.0
                      , asn1-encoding
                      , asn1-types
+                     , aeson
                      , attoparsec
                      , base64-bytestring
                      , binary
