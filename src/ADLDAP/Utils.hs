@@ -369,11 +369,15 @@ trToRec trec = Record dn' attrs
         attrs = M.fromList $ map (\(k, (t, vs)) -> (Tagged k, Attr t (S.map (t2v (Tagged k) t) vs))) as
         as = M.toList $ trAttrs trec
 
-toJson :: [Record] -> Text
-toJson rs = T.unlines $ map (T.decodeUtf8 . BL.toStrict . encode . recToTR) rs
+toJson :: Record -> Text
+toJson = T.decodeUtf8 . BL.toStrict . encode . recToTR
 
-toJsonPP :: [Record] -> Text
-toJsonPP rs = T.unlines $ map (T.decodeUtf8 . BL.toStrict . encodePretty . recToTR) rs
+toJsonPP :: Record -> Text
+toJsonPP = T.decodeUtf8 . BL.toStrict . encodePretty . recToTR
 
-fromJson :: Text -> [Record]
-fromJson = undefined
+fromJson :: Text -> Record
+fromJson t = trToRec recs
+  where recs = case decode . BL.fromStrict . T.encodeUtf8 $ t of
+                 Nothing -> error $ "cannot decode as a TextRecord: " ++ (T.unpack t)
+                 Just x -> x
+
