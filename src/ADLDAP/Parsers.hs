@@ -20,10 +20,8 @@ sreqP = do
 
 filterP :: Parser Filter
 filterP = do
-  char '('
-  attrs <- takeTill (')'==)
-  char ')'
-  return $ Tagged attrs
+  attrs <- string "(" *> manyTill anyChar (string ") ")
+  return $ Tagged $ T.pack $ "(" ++ attrs ++ ")"
 
 attrsP :: Parser [Key]
 attrsP = do
