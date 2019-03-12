@@ -46,6 +46,7 @@ import GHC.Word
 import LDAP
 import ADLDAP.LDIF.Parser (parseLdif)
 import Debug.Trace
+import Data.Maybe (isJust, fromJust)
 
 adSetUserPass :: ADCtx -> DN -> Text -> IO ()
 adSetUserPass ad dn' pass = ldapModify (ldap ad) (T.unpack . unTagged $ dn') [LDAPMod LdapModReplace "unicodePwd" [encodedPass]]
@@ -103,6 +104,8 @@ valToText _ StringTeletex             v = ": " <> T.decodeUtf8 v
 valToText _ StringUnicode             v = ": " <> T.decodeUtf8 v
 valToText _ StringUTCTime             v = ": " <> T.decodeUtf8 v
 valToText _ StringGeneralizedTime     v = ": " <> T.decodeUtf8 v
+valToText _ (LinkedDN _)              v = ": " <> T.decodeUtf8 v
+
 
 v2t :: Key -> ADType -> Val -> Text
 v2t "objectGUID" StringOctet v = T.pack (show $ parseGUID $ BL.fromStrict v)
@@ -201,11 +204,11 @@ realm2dn r = Tagged $ T.concat ["DC=", T.replace "." ",DC=" r]
 fetchAllTypes :: LDAP -> Realm -> IO TypeMap
 fetchAllTypes ldap adRealm = do
   res <- ldapSearch ldap (Just dn) (lscope Sub) (Just "(objectClass=attributeSchema)") attrs False
-  return $ M.fromList $ map (\(n, oid) -> (Tagged (T.pack n), fromJust (fromOID oid))) $ keys res
+  return $ M.fromList $ map (\(n, t) -> (Tagged (T.pack n), t)) $ (keys (findLinkPair res)) res
   where dn = "CN=Schema,CN=Configuration," <> dn'
         dn' = r2dnS adRealm
-        attrs = LDAPAttrList ["lDAPDisplayName", "attributeSyntax", "oMSyntax", "oMObjectClass"]
-        keys = map (\(LDAPEntry _ vs) ->
+        attrs = LDAPAttrList ["lDAPDisplayName", "attributeSyntax", "oMSyntax", "oMObjectClass", "linkID"]
+        keys flp = map (\(LDAPEntry _ vs) ->
                       let name = head $ fromJust $ L.lookup "lDAPDisplayName" vs
                           as = head $ fromJust $ L.lookup "attributeSyntax" vs
                           oms :: Int
@@ -213,11 +216,20 @@ fetchAllTypes ldap adRealm = do
                           omo = case oms of
                                   127 -> oMObjectClassFromBER $ BC.pack $ head $ fromJust $ L.lookup "oMObjectClass" vs
                                   _ -> Nothing
-                      in  (name, (as, oms, omo))
+                          res = (name, fromJust . fromOID $ (as, oms, omo))
+                      in  case L.lookup "linkID" vs of
+                            Nothing -> res
+                            Just (lid:_) -> if odd (read lid) then (name, LinkedDN (flp (read lid))) else res
                    )
         t r = case oMObjectClassFromBER r of
                 Just x -> x
                 Nothing -> error $ "cannot decode " ++ (show r)
+
+findLinkPair :: [LDAPEntry] -> Int -> Key
+findLinkPair es lid = key
+  where (LDAPEntry _ k) = head $ L.filter (\(LDAPEntry _ vs) -> let lid = L.lookup "linkID" vs in isJust lid && lid' == (head . fromJust $ lid)) es
+        lid' = show $ lid - 1
+        key = Tagged . T.pack . head . fromJust . L.lookup "lDAPDisplayName" $ k
 
 oMObjectClassFromBER :: ByteString -> Maybe String
 oMObjectClassFromBER hex = case Asn.decodeASN1' Asn.BER hex' of

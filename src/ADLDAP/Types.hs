@@ -49,6 +49,8 @@ instance IsString DN where
 type Key = Tagged KeyTag Text
 instance IsString Key where
   fromString = Tagged . T.pack
+instance ToJSON (Tagged KeyTag Text)
+instance FromJSON (Tagged KeyTag Text)
 
 type Val = ByteString
 type Vals = Set Val
@@ -142,8 +144,8 @@ data ADType = Boolean
             | StringUnicode
             | StringUTCTime
             | StringGeneralizedTime
-  deriving (Eq, Ord, Show, Generic, Read)
-instance Binary ADType
+            | LinkedDN Key
+  deriving (Eq, Ord, Show, Generic)
 instance ToJSON ADType
 instance FromJSON ADType
 
