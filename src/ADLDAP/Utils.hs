@@ -15,6 +15,8 @@ module ADLDAP.Utils (adSearch, adSearchReq
 --                    ,recToTR, trToRec
 --                    ,encode, decode
                     ,toJson, toJsonPP, fromJson
+                    ,mapLinkedFields
+                    ,linkedVopToAops
                     ) where
 
 import Data.Aeson
@@ -46,7 +48,7 @@ import GHC.Word
 import LDAP
 import ADLDAP.LDIF.Parser (parseLdif)
 import Debug.Trace
-import Data.Maybe (isJust, fromJust)
+import Data.Maybe (isJust, fromJust, mapMaybe)
 
 adSetUserPass :: ADCtx -> DN -> Text -> IO ()
 adSetUserPass ad dn' pass = ldapModify (ldap ad) (T.unpack . unTagged $ dn') [LDAPMod LdapModReplace "unicodePwd" [encodedPass]]
@@ -65,7 +67,7 @@ fromLdif ad text = parseLdif (fromJust . lookupFunc) text
         lookupFunc = flip M.lookup types
 
 toLdif :: [Record] -> LdifRecs
-toLdif recs = Tagged $ T.unlines $ map (unTagged . recToLdif) recs
+toLdif recs = let res = T.strip . T.unlines $ map (unTagged . recToLdif) recs in Tagged (res <> "\n")
 
 toLdifBS :: [Record] -> ByteString
 toLdifBS = T.encodeUtf8 . unTagged . toLdif
@@ -77,7 +79,7 @@ attrsToLdif :: Attrs -> [Text]
 attrsToLdif attrs = concatMap (\(k, (Attr t vals)) -> map (valToLdif k t) (S.toList vals)) $ M.toList attrs
 
 valToLdif :: Key -> ADType -> Val -> Text
-valToLdif k t v = unTagged k <> valToText k t v <> "\n# " <> T.pack (show t)
+valToLdif k t v = unTagged k <> valToText k t v
 
 valToText :: Key -> ADType -> Val -> Text
 valToText _ Boolean                   v = ": " <> T.decodeUtf8 v
@@ -287,8 +289,10 @@ guid2str s = show $ parseGUID $ BL.pack s
 newRec :: ADCtx -> Record -> IO ()
 newRec ad r = apply ad $ Add r
 
-modRec :: ADCtx -> (DN, [AttrOp]) -> IO ()
-modRec ad (dn, ops) = apply ad $ Mod dn ops
+modRec :: ADCtx -> [(DN, [AttrOp])] -> IO ()
+modRec ad ops = do
+  print ops
+  mapM_ (\(dn, ops) -> apply ad (Mod dn ops)) ops
 
 delRec :: ADCtx -> DN -> IO ()
 delRec ad dn = apply ad $ Del dn
@@ -325,13 +329,36 @@ recToLdapAdd :: Record -> [LDAPMod]
 recToLdapAdd (Record dn attrs) = map (\(k, (Attr _ vs)) -> let k' = T.unpack (unTagged k) in LDAPMod LdapModAdd k' (valsToStringList vs)) $ M.toList filtered
   where filtered = M.filterWithKey (\k _ -> k `notElem` restrictedKeys) attrs
 
+mapLinkedFields :: ADCtx -> (DN, [AttrOp]) -> [(DN, [AttrOp])]
+mapLinkedFields ad (dn', aops) = restOps <> (concat $ concatMap (\(ops, tk) -> la2aops tk ops) linkedAttrs)
+  where
+    restOps = case woLinkedAttrs aops of
+                [] -> []
+                rest -> [(dn', rest)]
+    woLinkedAttrs = filter (\a -> (aopKey a) `notElem` linkedKeys)
+    linkedKeys = map (\(a, _) -> aopKey a) linkedAttrs
+    la2aops k' (ModifyAttr _ vops) = map (linkedVopToAops dn' k') vops
+    la2aops k' (AddAttr _ vals) = [linkedVopToAops dn' k' (AddVals (S.toList vals))]
+    la2aops k' (DeleteAttr _ vals) = [linkedVopToAops dn' k' (DelVals (S.toList vals))]
+    vop2ops op = map (id) (vs op)
+    linkedAttrs = mapMaybe (\aop -> maybeLinkedType aop) aops
+    maybeLinkedType aop = case M.lookup (aopKey aop) (tmap ad) of
+                            Just (LinkedDN k') -> Just (aop,k')
+                            _ -> Nothing
+
+linkedVopToAops :: DN -> Key -> ValOp -> [(DN, [AttrOp])]
+linkedVopToAops dn' targetKey vop = map (\v -> (Tagged . T.decodeUtf8 $ v, [ModifyAttr targetKey [vop{ vs=[T.encodeUtf8 . unTagged $ dn']}]])) (vs vop)
+
 cmpVals :: Vals -> Vals -> (ValOp, ValOp)
 cmpVals old new = (added, deleted)
   where added = AddVals $ S.toList $ S.difference new old
         deleted = DelVals $ S.toList $ S.difference old new
 
-cmp :: Record -> Record -> (DN, [AttrOp])
-cmp (Record oldDn oldAttrs) (Record newDn newAttrs) =
+cmp :: ADCtx -> Record -> Record -> [(DN, [AttrOp])]
+cmp ad old new = mapLinkedFields ad (cmp' old new)
+
+cmp' :: Record -> Record -> (DN, [AttrOp])
+cmp' (Record oldDn oldAttrs) (Record newDn newAttrs) =
   let mm = M.intersection oldAttrs newAttrs
       addAttrs = map (\(k, as) -> AddAttr k (vals as))    $ M.toList $ M.difference newAttrs oldAttrs
       delAttrs = map (\(k, as) -> DeleteAttr k $ vals as) $ M.toList $ M.difference oldAttrs newAttrs
@@ -340,9 +367,11 @@ cmp (Record oldDn oldAttrs) (Record newDn newAttrs) =
                                             opsCount = length (vs adds) + length (vs dels)
                                             (adds, dels) = cmpVals as bs
                                         in if opsCount == 0 then Nothing
-                                           else Just $ case opsCount `compare` newRecSize of
-                                                         LT -> ModifyAttr k $ normOps [adds, dels]
-                                                         _ -> ReplaceAttr k bs
+                                           else Just $ case ta of
+                                                         LinkedDN _ -> ModifyAttr k $ normOps [adds, dels]
+                                                         _ -> case opsCount `compare` newRecSize of
+                                                                LT -> ModifyAttr k $ normOps [adds, dels]
+                                                                _ -> ReplaceAttr k bs
         ) oldAttrs newAttrs
   in (oldDn, addAttrs <> delAttrs <> modAttrs)
 

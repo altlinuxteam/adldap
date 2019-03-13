@@ -91,10 +91,10 @@ data RecOp = Add !Record
            | Mov !DN !DN
   deriving (Eq, Show)
 
-data AttrOp = AddAttr Key Vals
-            | DeleteAttr Key Vals
-            | ReplaceAttr Key Vals
-            | ModifyAttr Key [ValOp]
+data AttrOp = AddAttr {aopKey :: !Key, aopVals :: !Vals}
+            | DeleteAttr {aopKey :: !Key, aopVals :: !Vals}
+            | ReplaceAttr {aopKey :: !Key, aopVals :: !Vals}
+            | ModifyAttr {aopKey :: !Key, aopVops :: [ValOp]}
   deriving (Eq, Show)
 
 data ValOp = AddVals { vs :: ![Val]}
