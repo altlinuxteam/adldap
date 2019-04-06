@@ -26,8 +26,11 @@ data ADCtx = ADCtx{adRealm :: !Realm
                   ,adPort  :: !Port
                   ,ldap    :: !LDAP
                   ,tmap    :: !TypeMap
+--                  ,handler :: (LDAPException -> IO ())
                   }
   deriving (Eq,Show)
+
+data ADLDAPError = NotFound deriving (Eq, Show)
 
 type Realm = Text
 type Host = String

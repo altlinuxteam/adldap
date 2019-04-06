@@ -125,13 +125,21 @@ allAttrs = ["*", "+"]
 
 nodeAttr :: ADCtx -> DN -> Text -> IO [Val]
 nodeAttr ad dn' attr = do
-  (Record _ res) <- head <$> adSearch ad dn' Base Nothing [key]
-  let (Attr _ vs) = fromJust $ M.lookup key res
-  return $ S.toList vs
+  rs <- adSearch ad dn' Base Nothing [key]
+  case rs of
+    [] -> return []
+    xs -> do
+      let (Attr _ vs) = fromJust $ M.lookup key res
+          (Record _ res) = head xs
+      return $ S.toList vs
   where key = Tagged attr
 
-recordOf :: ADCtx -> FilePath -> IO Record
-recordOf ad path = head <$> adSearch ad (path2dn ad path) Base Nothing allAttrs
+recordOf :: ADCtx -> FilePath -> IO (Either ADLDAPError Record)
+recordOf ad path = do
+  res <- adSearch ad (path2dn ad path) Base Nothing allAttrs
+  case res of
+    [] -> return $ Left NotFound
+    xs -> return $ Right $ head xs
 {--
 childrenOf :: ADCtx -> FilePath -> IO [Record]
 childrenOf ad path = adSearch ad (path2dn ad path) One Nothing [Tagged "*"]
