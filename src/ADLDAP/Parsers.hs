@@ -1,9 +1,15 @@
+{-# LANGUAGE CPP #-}
 module ADLDAP.Parsers where
 import ADLDAP.Types
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Attoparsec.Text
 import Data.Attoparsec.Combinator
+import Prelude ()
+import Prelude.Compat
+#if MIN_VERSION_base(4,6,0)
+import Control.Applicative
+#endif
 
 parseSearchRequest :: Text -> (Maybe Filter, [Key])
 parseSearchRequest req = case parseOnly sreqP req of

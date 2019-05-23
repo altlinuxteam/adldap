@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 module ADLDAP.LDIF.Parser where
 
 import Data.Attoparsec.Text
@@ -6,6 +7,12 @@ import qualified Data.ByteString.Base64 as B64
 import Data.Text (Text, cons)
 import Data.Text.Encoding
 import ADLDAP.Types
+import Prelude ()
+import Prelude.Compat
+#if MIN_VERSION_base(4,6,0)
+import Control.Applicative
+import Data.Semigroup ((<>))
+#endif
 
 parseLdif :: TypeResolver -> LdifRecs -> [Record]
 parseLdif keyToType text = case parseOnly (ldifP keyToType) (unTagged text) of

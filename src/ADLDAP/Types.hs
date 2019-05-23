@@ -1,7 +1,4 @@
-{-# LANGUAGE
-DeriveGeneric,
-FlexibleInstances
-#-}
+{-# LANGUAGE DeriveGeneric, FlexibleInstances, CPP #-}
 module ADLDAP.Types where
 
 import Data.Aeson
@@ -9,6 +6,10 @@ import Data.Text (Text)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BC
 import Data.Map (Map)
+#if MIN_VERSION_base(4,6,0)
+import Data.Semigroup
+#endif
+import Data.Semigroup.Compat
 import Data.Set (Set)
 import qualified Data.Set as S
 import qualified Data.Text as T
@@ -20,6 +21,8 @@ import Numeric (showHex)
 import Data.Binary
 import GHC.Generics
 import qualified Data.ByteString.Base64 as B64
+import Prelude ()
+import Prelude.Compat
 
 data ADCtx = ADCtx{adRealm :: !Realm
                   ,adHost  :: !Host

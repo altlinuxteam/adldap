@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE CPP #-}
 module ADLDAP.Utils (adSearch, adSearchReq
                     ,adSetUserPass
                     ,childrenOf, childrenOf'
@@ -49,6 +50,10 @@ import LDAP
 import ADLDAP.LDIF.Parser (parseLdif)
 import Debug.Trace
 import Data.Maybe (isJust, fromJust, mapMaybe)
+#if MIN_VERSION_base(4,6,0)
+import Control.Applicative
+import Data.Semigroup ((<>))
+#endif
 
 adSetUserPass :: ADCtx -> DN -> Text -> IO ()
 adSetUserPass ad dn' pass = ldapModify (ldap ad) (T.unpack . unTagged $ dn') [LDAPMod LdapModReplace "unicodePwd" [encodedPass]]
