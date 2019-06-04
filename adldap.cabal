@@ -28,7 +28,7 @@ library
 
   -- other-modules:
   -- other-extensions:
-  build-depends:       base ^>=4.6.0.0
+  build-depends:       base >=4.6.0.0
                      , base-compat >= 0.9
                      , asn1-encoding
                      , asn1-types
