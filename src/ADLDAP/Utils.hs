@@ -97,7 +97,7 @@ valToText _ ObjectORName              v = ": " <> T.decodeUtf8 v
 valToText _ ObjectDNBinary            v = ": " <> T.decodeUtf8 v
 valToText _ ObjectDSDN                v = ": " <> T.decodeUtf8 v
 valToText _ ObjectPresentationAddress v = ": " <> T.decodeUtf8 v
-valToText _ ObjectReplicaLink         v = ": " <> T.decodeUtf8 v
+valToText _ ObjectReplicaLink         v = ":: " <> (T.decodeUtf8 $ B64.encode v)
 valToText _ StringCase                v = ": " <> T.decodeUtf8 v
 valToText _ StringIA5                 v = ": " <> T.decodeUtf8 v
 valToText _ StringNTSecDesc           v = ": " <> T.decodeUtf8 v
@@ -113,18 +113,33 @@ valToText _ StringUTCTime             v = ": " <> T.decodeUtf8 v
 valToText _ StringGeneralizedTime     v = ": " <> T.decodeUtf8 v
 valToText _ (LinkedDN _)              v = ": " <> T.decodeUtf8 v
 
+textToVal :: Key -> ADType -> Text -> Val
+textToVal _ Boolean                   = T.encodeUtf8
+textToVal _ Integer                   = T.encodeUtf8
+textToVal _ Enumeration               = T.encodeUtf8
+textToVal _ LargeInteger              = T.encodeUtf8
+textToVal _ ObjectAccessPoint         = T.encodeUtf8
+textToVal _ ObjectDNString            = T.encodeUtf8
+textToVal _ ObjectORName              = T.encodeUtf8
+textToVal _ ObjectDNBinary            = T.encodeUtf8
+textToVal _ ObjectDSDN                = T.encodeUtf8
+textToVal _ ObjectPresentationAddress = T.encodeUtf8
+textToVal _ ObjectReplicaLink         = B64.decodeLenient . T.encodeUtf8
+textToVal _ StringCase                = T.encodeUtf8
+textToVal _ StringIA5                 = T.encodeUtf8
+textToVal _ StringNTSecDesc           = T.encodeUtf8
+textToVal _ StringNumeric             = T.encodeUtf8
+textToVal _ StringObjectIdentifier    = T.encodeUtf8
+textToVal "objectGUID" StringOctet    = T.encodeUtf8
+textToVal _ StringOctet               = B64.decodeLenient . T.encodeUtf8
+textToVal _ StringPrintable           = T.encodeUtf8
+textToVal _ StringSid                 = B64.decodeLenient . T.encodeUtf8
+textToVal _ StringTeletex             = T.encodeUtf8
+textToVal _ StringUnicode             = T.encodeUtf8
+textToVal _ StringUTCTime             = T.encodeUtf8
+textToVal _ StringGeneralizedTime     = T.encodeUtf8
+textToVal _ (LinkedDN _)              = T.encodeUtf8
 
-v2t :: Key -> ADType -> Val -> Text
-v2t "objectGUID" StringOctet v = T.pack (show $ parseGUID $ BL.fromStrict v)
-v2t _ StringSid v = T.pack (show $ parseSID $ BL.fromStrict v)
-v2t _ StringOctet v = T.decodeUtf8 $ B64.encode v
-v2t _ _ v = T.decodeUtf8 v
-
-t2v :: Key -> ADType -> Text -> Val
-t2v "objectGUID" StringOctet v = T.encodeUtf8 v
-t2v _ StringSid v = T.encodeUtf8 v
-t2v _ StringOctet v = B64.decodeLenient $ T.encodeUtf8 v
-t2v _ _ v = T.encodeUtf8 v
 
 allAttrs = ["*", "+"]
 
@@ -414,13 +429,13 @@ restrictedKeys =
 
 recToTR :: Record -> TextRecord
 recToTR (Record dn' attrs) = TextRecord (unTagged dn') vals
-  where vals = M.fromList $ map (\(k, (Attr t vs)) -> (unTagged k, (t, S.map (v2t k t) vs))) as
+  where vals = M.fromList $ map (\(k, (Attr t vs)) -> (unTagged k, (t, S.map (valToText k t) vs))) as
         as = M.toList attrs
 
 trToRec :: TextRecord -> Record
 trToRec trec = Record dn' attrs
   where dn' = Tagged $ trDN trec
-        attrs = M.fromList $ map (\(k, (t, vs)) -> (Tagged k, Attr t (S.map (t2v (Tagged k) t) vs))) as
+        attrs = M.fromList $ map (\(k, (t, vs)) -> (Tagged k, Attr t (S.map (textToVal (Tagged k) t) vs))) as
         as = M.toList $ trAttrs trec
 
 toJson :: Record -> Text
